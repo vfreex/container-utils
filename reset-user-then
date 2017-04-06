@@ -84,7 +84,7 @@ main() {
   if [ -n "$NEW_GID" ] && [ "$NEW_GID" -ne "$ON_GID" ]; then
     change_gid "$ON_USER" "$ON_GROUP" "$NEW_GID"
   fi
-  if [ -z "$@" ]; then
+  if [ "#@" -lt 1 ]; then
     return
   fi
   if which gosu; then
