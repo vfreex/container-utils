@@ -1,7 +1,7 @@
 #!/bin/bash
 # Copyright (C) 2017 Red Hat Inc.
 # Author: Yuxiang Zhu <yuxzhu@redhat.com>
-set -ex
+set -e
 usage() {
   >&2 echo 'Reset UID and GID of specified user then run commands as that user'
   >&2 echo 'Usage:'
