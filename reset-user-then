@@ -1,0 +1,101 @@
+#!/bin/bash
+# Copyright (C) 2017 Red Hat Inc.
+# Author: Yuxiang Zhu <yuxzhu@redhat.com>
+set -ex
+usage() {
+  >&2 echo 'Reset UID and GID of specified user then run commands as that user'
+  >&2 echo 'Usage:'
+  >&2 echo "  $0 [-u <new-uid>] [-g <new-gid>] <user>[:<group>] [<commands>...]"
+}
+
+NEW_UID=
+NEW_GID=
+ON_USER=
+ON_GROUP=
+ON_UID=
+ON_GID=
+
+parse_opts() {
+  while getopts 'u:g:' opt; do
+    case "$opt" in
+    u)
+      NEW_UID=$OPTARG
+      ;;
+    g)
+      NEW_GID=$OPTARG
+      ;;
+    ?)
+      >&2 echo "Invalid option: $OPTARG."
+      usage
+      exit 1
+      ;;
+    esac
+  done
+  shift $((OPTIND-1))
+  if [ "$#" -lt 1 ]; then
+    >&2 echo "Too few arguments."
+    usage
+    exit 1
+  fi
+
+  ON_USER=$(echo "$1" | awk -F: '{ print $1 }')
+  ON_GROUP=$(echo "$1" | awk -F: '{ print $2 }')
+
+  ON_UID=$(getent passwd -- "$ON_USER" | cut -d: -f3)
+  if [ -z "$ON_UID" ]; then
+    >&2 echo "Specified user '$ON_USER' does not exist."
+    exit 1
+  fi
+
+  if [ -z "$ON_GROUP" ]; then
+    ON_GROUP=$(id -gn -- "$ON_USER")
+  fi
+  ON_GID=$(getent group -- "$ON_GROUP" | cut -d: -f3)
+  if [ -z "$ON_GID" ]; then
+    >&2 echo "Specified group '$ON_GROUP' does not exist."
+    exit 1
+  fi
+}
+
+change_uid() {
+  local user=$1
+  local new_uid=$2
+  usermod -u "$new_uid" -- "$user"
+}
+
+change_gid() {
+  local user=$1
+  local group=$2
+  local new_gid=$3
+  if ! getent group -- "$new_gid" >/dev/null; then
+    groupmod -g "$new_gid" -- "$group"
+  else
+    usermod -g "$new_gid" -G "$group" -a -- "$user"
+  fi
+}
+
+main() {
+  parse_opts "$@"
+  shift $((OPTIND))
+  echo "$@"
+  if [ -n "$NEW_UID" ] && [ "$NEW_UID" -ne "$ON_UID" ]; then
+    change_uid "$ON_USER" "$NEW_UID"
+  fi
+  if [ -n "$NEW_GID" ] && [ "$NEW_GID" -ne "$ON_GID" ]; then
+    change_gid "$ON_USER" "$ON_GROUP" "$NEW_GID"
+  fi
+  if [ -z "$@" ]; then
+    return
+  fi
+  if which gosu; then
+    gosu "$ON_USER:$ON_GROUP" "$@"
+  elif which sudo; then
+    sudo -u "$ON_USER" -- "$@"
+  else
+    >&2 echo "Couldn't switch user. You must install gosu or sudo."
+    exit 1
+  fi
+}
+
+main "$@"
+
