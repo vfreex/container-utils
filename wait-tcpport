@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# wait for a TCP port to be listening
+# Copyright (C) 2017, Red Hat Inc.
+
+set -e
+
+usage() {
+  >&2 echo "Usage: $0 [OPTIONS] [host:tcp_port]..."
+  >&2 echo
+  >&2 echo -e '\twait for any specified TCP port to be listening'
+  >&2 echo
+  >&2 echo 'OPTIONS:'
+  >&2 echo -e '\t-h\t\tshow this help'
+  >&2 echo -e '\t-w SECONDS\tset the connect timeout to SECONDS'
+  >&2 echo -e '\t-n NUMBER\tset max retry attempts'
+  >&2 echo -e '\t-t SECONDS\twait SECONDS between retries of a retrieval'
+  >&2 echo -e '\t-p PORT\tset the default port to connect'
+
+}
+
+WAIT_TIMEOUT=5
+WAIT_SLEEP=1
+MAX_TRIES=0
+DEFAULT_PORT=
+
+wait_one() {
+  local host=$(echo "$1" | cut --delimiter=: --fields=1)
+  local port=$(echo "$1" | awk -F: '{ print $2 }')
+
+  if [ -z "$port" ]; then
+    port=$DEFAULT_PORT
+  fi
+  nc -w"$WAIT_TIMEOUT" "$host" "$port" < /dev/null
+  return $?
+}
+
+wait_any() {
+  for host_port in "$@"; do
+    if wait_one "$host_port"; then
+      return 0;
+    fi
+  done
+  return 1;
+}
+
+main() {
+  while getopts ':hw:n:t:p:' opt; do
+    case "$opt" in
+      h)
+        usage
+        exit 0
+        ;;
+      w)
+        WAIT_TIMEOUT=$OPTARG ;;
+      n)
+        MAX_TRIES=$OPTARG ;;
+      t)
+        WAIT_SLEEP=$OPTARG ;;
+      p)
+        DEFAULT_PORT=$OPTARG ;;
+      ?)
+        >&2 echo "$0: invalid option -- -$OPTARG"
+        usage
+        exit 1
+        ;;
+    esac
+  done
+  shift $((OPTIND-1))
+
+  local success=0 tried=0
+  IFS=","
+  while [ "$MAX_TRIES" -eq 0 ] || [ "$tried" -lt "$MAX_TRIES" ]; do
+    if wait_any "$@"; then
+      success=1
+      break
+    fi
+    >&2 echo "INFO: couldn't connect to $@, sleep 1 sec and try again"
+    ((tried++))
+    sleep "$WAIT_SLEEP"
+  done
+  unset IFS
+  return $((!success))
+}
+
+main "$@"
